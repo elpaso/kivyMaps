@@ -12,7 +12,7 @@ from sidepanel import SidePanel
 from MapViewer import MapViewer
 import WMSTileServer
 from WMSOverlayServer import *
-
+from GEOJSONOverlayServer import *
 
 class KVMaps(App):
   def add_kart(self, menu, name, provider, maptype):
@@ -36,8 +36,11 @@ class KVMaps(App):
     self.add_kart(menu, "Microsoft Bing Roads", 'bing', 'Roadmap')
     self.add_kart(menu, "Microsoft Bing Satellite", 'bing', 'Satellite')
     self.add_kart(menu, "OSM-WMS", 'osmwms', 'Roadmap')
+    
     layout.add_widget(menu)
 
+    self.mv.map.overlays.append(GEOJSONOverlayServer(provider_host='http://www.movimentolento.it/it/resource/map/poi/category/personaggi-francigena.json'))
+    
     return layout
     
 if __name__ in ('__android__','__main__'):
