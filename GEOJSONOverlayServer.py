@@ -5,6 +5,7 @@ from urllib2 import urlopen
 from threading import Thread
 from kivy.logger import Logger
 from kivy.loader import Loader
+from kivy.uix.widget import Widget
 from os.path import join, dirname
 from TileServer import TileServer
 import re
@@ -22,6 +23,7 @@ class GEOJSONOverlayServer(object):
     def __init__(self, provider_host=None, progress_callback=None):
         self.provider_host = provider_host
         self.progress_callback = progress_callback
+
 
     def setProgressCallback(self, progress_callback):
         self.progress_callback = progress_callback
@@ -109,7 +111,6 @@ class GEOJSONOverlayServer(object):
         TODO: implementation
         """
         return None
-        
 
     def xy_to_co(self, lat, lon):
         if self.customBounds:
@@ -144,5 +145,6 @@ class GEOJSONOverlayServer(object):
         else:
             (l, m) = transform(self.projection, pLatlon, y, x)
         return (l, m)
+
 
 

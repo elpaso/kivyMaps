@@ -21,9 +21,10 @@ from kivy.uix.scatter import ScatterPlane
 from kivy.uix.stencilview import StencilView
 
 from kivy.uix.button import Button
-from kivy.uix.image import Image
+from kivy.uix.image import Image, AsyncImage
 from kivy.uix.popup import Popup
 from kivy.uix.label import Label
+
 
 from kivy.graphics import Color, Rectangle, Ellipse, Line
 from kivy.graphics.transformation import Matrix
@@ -89,7 +90,7 @@ class MapViewerPlane(ScatterPlane):
 
         self.quality = 1
         self.maxzoomlevel = 35
-        self.xy = self.get_xy_from_latlon(60, 10)
+        self.xy = self.get_xy_from_latlon(43.0, 10.0)
         self.tilecount = 0
 
         self.minscale = 0
@@ -98,9 +99,23 @@ class MapViewerPlane(ScatterPlane):
 
         self.loadtimes = {}
 
+        # ABP: set dirty on move
+        self.is_dirty = True
+
         Clock.schedule_interval(self.update, .1)
 
+    def set_dirty(self):
+        """Set dirty flag"""
+        self.is_dirty = True
+        #self.draw()
+
+    def set_dirty_event(self, evt):
+        """Set dirty flag"""
+        Logger.debug('DIRTY: got set event %s', evt)
+        self.set_dirty()
+
     def update(self, dt):
+        """Redraw the screen"""
         self._dt = dt
         self.tileserver.update()
         self.draw()
@@ -117,6 +132,8 @@ class MapViewerPlane(ScatterPlane):
             self.tileserver = TileServer.providers[x]()
         else:
             raise Exception('Unknown map provider %s' % x)
+        # ABP: attach event:
+        self.tileserver.bind(on_dirty=self.set_dirty_event)
 
     provider = property(_get_provider, _set_provider)
 
@@ -333,6 +350,9 @@ class MapViewerPlane(ScatterPlane):
         self.csize = (self.cmax[0] - self.cmin[0], self.cmax[1]
                       - self.cmin[1])
 
+        #Logger.debug("BBOX: %s %s" % (self.bottom_left, self.top_right))
+        #Logger.debug('ACTUAL CENTER: %s %s' % (self.get_center_x(), self.get_center_y()))
+
     # draw background
 
         self.canvas.clear()
@@ -453,28 +473,31 @@ class MapViewerPlane(ScatterPlane):
                   # Line(points=points)
 
                                 pass
-                            
+
             ############################################################
             ##
             ##  GEOJSON provider
             ##
             elif overlay.type == 'geojson':
                 geometries = None
-                if self.lastmove is None or time.time() > self.lastmove \
-                    + 0.5:  # wait a second after moving before we try to contact the WFS
-                    # Get geojson
-                    features = overlay.get()
-                    if features is not None:
-                        with self.canvas:
-                            for feature in features:
-                                geom = feature.get('geometry')
-                                if geom.get('type') == 'Point':
-                                    # Draw a point
-                                    copos = geom.get('coordinates')
-                                    (l, m) = overlay.co_to_ll(copos[0],
-                                            copos[1])
-                                    (x, y) = self.get_xy_from_latlon(l, m)
+                features = overlay.get()
+                if features is not None:
+                    with self.canvas:
+                        for feature in features:
+                            geom = feature.get('geometry')
+                            if geom.get('type') == 'Point':
+                                # Draw a point
+                                copos = geom.get('coordinates')
+                                (l, m) = overlay.co_to_ll(copos[0],
+                                        copos[1])
+                                (x, y) = self.get_xy_from_latlon(l, m)
+                                #Logger.debug('JSONXY: %s, %s' % (x, y))
 
+                                if feature.get('properties').get('icon_url'):
+                                    Color(0, 0, 0, 0)
+                                    r = 32.0 / self.scale
+                                    img = AsyncImage(source=feature.get('properties').get('icon_url'), mipmap=True, pos=(x - r / 2, y - r / 2), size=(r, r))
+                                else:
                                     Color(0, 0, 0)
                                     r = 10.0 / self.scale
                                     Ellipse(pos=(x - r / 2, y - r / 2),
@@ -484,9 +507,9 @@ class MapViewerPlane(ScatterPlane):
                                     Ellipse(pos=(x - r / 2, y - r / 2),
                                             size=(r, r))
                                     #print x, y, r
-                                elif feature.type == 'LineString':
-                                    # Draw a linestring
-                                    print 'LineString'
+                            elif feature.type == 'LineString':
+                                # Draw a linestring
+                                print 'LineString'
 
         if self.status_cb:
             self.status_cb(self.tileserver.q_count, self.tilecount)
@@ -505,6 +528,7 @@ class MapViewerPlane(ScatterPlane):
     def on_touch_move(self, touch):
         super(MapViewerPlane, self).on_touch_move(touch)  # delegate to scatterplane first
         self.lastmove = time.time()
+        self.set_dirty()
 
     def on_touch_down(self, touch):
         super(MapViewerPlane, self).on_touch_down(touch)  # delegate to scatterplane first
@@ -609,6 +633,7 @@ class MapViewer(StencilView):
         y,
         z,
         ):
+        """Move to x y and scale"""
         self.map._set_scale(z)
         self.map._set_pos((x, y))
 
@@ -619,5 +644,17 @@ class MapViewer(StencilView):
         self.move_to(-3748.8157983360124, -5857.7510923382652,
                      3.26647927983)  # android
 
+    def center_to_latlon(self, lat, lon, scale=None):
+        """Center map to lat lon and optionally scale"""
+        if scale is not None :
+            self.map._set_scale(scale)
+        (x, y) = self.map.get_xy_from_latlon(lat, lon)
+        (sizex, sizey) = self.size
+        scale = self.map.scale
+        #Logger.debug("XY: %s %s" % (x, y))
+        #Logger.debug("SIZE: %s %s" % (sizex, sizey))
+        #Logger.debug("W H: %s %s" % (self.parent.width, self.parent.height))
+        #Logger.debug("SCALE: %s" % (scale))
+        self.map.pos=(-x*scale + sizex/2, -y*scale + sizey/2)
 
 Factory.register('MapViewer', MapViewer)

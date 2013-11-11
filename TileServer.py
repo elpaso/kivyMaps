@@ -5,7 +5,7 @@ from kivy.loader import Loader
 from kivy.cache import Cache
 from kivy.logger import Logger
 from kivy.factory import Factory
-
+from kivy.event import EventDispatcher
 from kivy.core.image import Image
 
 from os.path import join, dirname, exists, isdir, isfile, sep
@@ -29,25 +29,27 @@ Cache.register('tileserver.tiles', limit=10, timeout=10) #1000/10000
 Cache.register('tileserver.tilesalpha', limit=10, timeout=10)
 #################################################################################
 
-class TileServer(object):
+class TileServer(EventDispatcher):
     '''Base implementation for a tile provider.
     Check GoogleTileServer and YahooTileServer if you intend to use more
     '''
     provider_name = 'unknown'
     providers = dict()
-    
+
     @staticmethod
     def register(cls):
         TileServer.providers[cls.provider_name] = cls
 
-    def __init__(self, poolsize=TILESERVER_POOLSIZE):
+    def __init__(self, poolsize=TILESERVER_POOLSIZE, **kwargs):
+        self.register_event_type('on_dirty')
+        super(TileServer, self).__init__(**kwargs)
         self.cache_path = join(dirname(__file__), 'cache', self.provider_name)
         if not isdir(self.cache_path):
             makedirs(self.cache_path)
 
-        black = Loader.image(join('documents','black.png'))
+        #black = Loader.image(join('documents','black.png'))
         #Loader._loading_image = black
-            
+
         self.q_in       = deque()
         self.q_out      = deque()
         self.q_count    = 0
@@ -58,7 +60,10 @@ class TileServer(object):
         self.want_close = False
         self.available_maptype = dict(roadmap='Roadmap')
         self.hcsvnt     = Loader.image(join('documents','hcsvnt.png'))
-        
+        self.hcsvnt.bind(on_load=self.set_dirty)
+
+    def on_dirty(self):
+        pass
 
     def start(self):
         '''Start all the workers
@@ -120,7 +125,7 @@ class TileServer(object):
         if img is not None:
             return img
 
-        # no tile, ask to workers to download 
+        # no tile, ask to workers to download
         Cache.append('tileserver.tiles', filename, False)
         self.q_count += 1
         self.q_in.append((nx, ny, zoom, maptype, format))
@@ -129,10 +134,14 @@ class TileServer(object):
         self.c_in.release()
         return None
 
+    def set_dirty(self, evt):
+        """Dispatch event"""
+        self.dispatch('on_dirty')
+
     def update(self):
         '''Must be called to get pull image from the workers queue
         '''
-        
+
         pop = self.q_out.pop
         while True:
             try:
@@ -149,11 +158,11 @@ class TileServer(object):
 
         while not self.want_close:
             try:
-                do(c_in, q_in, q_out) 
+                do(c_in, q_in, q_out)
             except:
                 Logger.exception('TileServerWorker: Unknown exception, stop the worker')
                 return
-                
+
     def _worker_run_once(self, c_in, q_in, q_out):
         '''Internal. Load one image, process, and push.
         '''
@@ -193,7 +202,7 @@ class TileServer(object):
               except Exception,ex:
                 print "ERROR IN %s/%s \n%s" % (self.provider_host, url, str(ex))
                 continue
-              
+
               try:
                   data = conn.read()
                   conn.close()
@@ -202,18 +211,18 @@ class TileServer(object):
                   Logger.error('TileServer: "%s": %s' % (str(e), filename))
                   Logger.error('TileServer: "%s": URL=%s' % (str(e),url))
                   continue
-            
+
               # discard error messages
               if data[:5] == "<?xml":
                   msg = ""
-                  try: 
+                  try:
                     msg = data[data.index("<ServiceException>")+18 : data.index("</ServiceException")]
                   except:
                     pass
                   Logger.error('Tileserver: Received error fetching %s: %s' % (url, msg))
                   continue
-                
-            
+
+
               # write data on disk
               try:
                   directory = sep.join(filename.split(sep)[:-1])
@@ -232,13 +241,14 @@ class TileServer(object):
               self.post_download(filename)
               loaded = True
               break
-        
+
         if not loaded:
-          return        
+          return
 
         # load image
         try:
           image = Loader.image(filename)
+          image.bind(on_load=self.set_dirty)
         except Exception,e:
           Logger.error('TileServer|HCSVNT "%s": file=%s' % (str(e), filename))
           image = self.hcsvnt
@@ -294,7 +304,7 @@ class YahooTileServer(TileServer):
         return '/us.png.maps.yimg.com/png?v=%s&t=m&%s' % \
             ('3.52', coordinates)
 
-            
+
 class BlueMarbleTileServer(TileServer):
     '''Blue Marble tile server implementation
     '''
